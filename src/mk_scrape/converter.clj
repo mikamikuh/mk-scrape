@@ -3,6 +3,8 @@
    [clojure.string :as str]
    [net.cgrand.enlive-html :as html]))
 
+(def ignore-files ["share_tools.html" "user_tools.html" "email_sharing.html" "filing_tools.html" "global_tools.html"])
+
 (defn scrape [resource condition]
   "リソースと条件から要素を取得する"
   (map html/text (html/select resource condition)))
@@ -18,7 +20,8 @@
 
 (defn create-paths [folder]
   "パスの一覧を作成する"
-  (rest (map #(.toString %) (file-seq (clojure.java.io/file folder)))))
+  (filter #(and (empty? (filter (fn [f] (.endsWith % f)) ignore-files)) (.endsWith % ".html"))
+          (map #(.toString %) (file-seq (clojure.java.io/file folder)))))
 
 (defn fetch [paths]
   "パスのシーケンスを受け取り、その全要素に対してfetch-pageを実施したものを返す"
@@ -27,13 +30,25 @@
 (defn convert-to-map [targets]
   "解析したHTMLのシーケンスを取得し、出力用マップのシーケンスを返す"
   (map #(merge {:content (scrape % [:span.made_prev_txt])}
-                 {:title (let [res (scrape % [:div.topics_path :ul :li])] (nth res (dec (count res))))}
+                 {:title (let [res (scrape % [:div.topics_path :ul :li])]
+                           (if (empty? res)
+                             ""
+                             (nth res (dec (count res)))))}
                  {:img (let [seq (:src (:attrs (first (html/select % [:div.pic :p :img]))))]
-                         (str "/img/items/"
-                              (let [s (clojure.string/split seq #"/")]
-                                (nth s (dec (count s))))))}
+                         (str ""
+                              (if (nil? seq)
+                                ""
+                                (let [s (clojure.string/split seq #"/")]
+                                  (if (empty? s)
+                                    ""
+                                    (nth s (dec (count s))))))))}
+                 {:link (:href (:attrs (first (html/select % [:span.goodCount :a])))) }
                  {:layout "post"}
-                 {:author (first (reverse (str/split (:href (:attrs (first (html/select % [:div.inner :dt :a]))))  #"\/")))}) (remove nil? targets)))
+                 {:author (let [seq (:href (:attrs (first (html/select % [:dl.authorDetail01 :dt :a]))))]
+                            (if (nil? seq)
+                              ""
+                              (first (reverse (str/split seq #"\/")))))})
+       (remove nil? targets)))
 
 (defn convert-to-seq [m]
   "マップを文字列シーケンスに変換する"
@@ -42,6 +57,7 @@
      (str "author: " (m :author))
      (str "layout: post")
      (str "img: " (m :img))
+     (str "link: " (m :link))
      "---"
      (first (m :content))
      ])
